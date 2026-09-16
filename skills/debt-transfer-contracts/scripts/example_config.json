@@ -1,0 +1,142 @@
+{
+  "batch_number": 12,
+  "batch_label": "第12批",
+  "debt_excel": "D:/分案数据/260805分案/法久第12批债转协议0910/债转文件0910.xlsx",
+  "output_root": "D:/分案数据/260805分案/法久第12批债转协议0910",
+  "dates": {
+    "first": "2026-09-10",
+    "second": "2026-09-11"
+  },
+  "second_contact_address": "上海市浦东新区金桥镇台桥路28号A栋208室",
+  "parties": {
+    "SNX": {
+      "short": "三农信",
+      "name": "黑龙江三农信融资担保有限公司"
+    },
+    "YR": {
+      "short": "应瑞",
+      "name": "新疆应瑞融资担保有限公司"
+    },
+    "FT": {
+      "short": "锋泰",
+      "name": "北京锋泰科技有限公司",
+      "address": "北京市朝阳区东三环北路19号楼中青大厦1908室",
+      "bank": "华夏银行股份有限公司北京学院路支行",
+      "account": "10242000000483660"
+    },
+    "HR": {
+      "short": "焕然",
+      "name": "北京焕然数字科技有限公司",
+      "address": "北京市朝阳区东三环北路19号楼中青大厦1903室",
+      "bank": "华夏银行股份有限公司北京学院路支行",
+      "account": "10242000000483581"
+    },
+    "JH": {
+      "short": "竣洪",
+      "name": "上海竣洪商务咨询有限公司",
+      "address": "上海市杨浦区长阳路2555号一层101室(集中登记地)",
+      "bank": "招商银行股份有限公司上海张江支行",
+      "account": "121996620010001",
+      "credit": "91310110MAKL267UX5"
+    },
+    "HJ": {
+      "short": "洪均",
+      "name": "上海洪均商务咨询有限公司",
+      "address": "上海市杨浦区长阳路2555号一层101室(集中登记地)",
+      "bank": "招商银行股份有限公司上海张江支行",
+      "account": "121996620310001",
+      "credit": "91310110MAKLTE463H"
+    },
+    "WM": {
+      "short": "万妙",
+      "name": "杭州万妙汇新商务咨询有限公司",
+      "address": "浙江省杭州市临平区东湖街道兴国路505号10幢二单元一楼101-58室",
+      "bank": "招商银行股份有限公司杭州海创园小微企业专营支行",
+      "account": "571922175910001",
+      "credit": "91330113MAE667H24D"
+    }
+  },
+  "templates": {
+    "first": "D:/path/to/上一批/一转协议.docx",
+    "first_template_date_cn": "2026年08月13日",
+    "first_template_date_compact": "20260813",
+    "first_template_recipient": {
+      "name": "北京锋泰科技有限公司",
+      "address": "北京市朝阳区东三环北路19号楼中青大厦1908室",
+      "bank": "华夏银行股份有限公司北京学院路支行",
+      "account": "10242000000483660"
+    },
+    "old_batch_label": "第11批",
+    "second_template_date_cn": "2026年08月17日",
+    "second_template_date_compact": "20260817",
+    "second_template_date_bracket": "【2026】年【08】月【17】日",
+    "second_template_recipient": {
+      "name": "上海序嘉洪商务咨询有限公司",
+      "address": "上海市浦东新区金桥镇台桥路28号A栋208室",
+      "bank": "招商银行股份有限公司上海张江支行",
+      "account": "121991885810001",
+      "code": "XJH"
+    }
+  },
+  "first_transfers": [
+    {"sheet": "三农信_焕然", "recipient": "HR"},
+    {"sheet": "三农信_锋泰", "recipient": "FT"}
+  ],
+  "second_groups": [
+    {
+      "sheet": "三农信_竣洪",
+      "transferor": "SNX",
+      "recipient": "JH",
+      "template_folder": "D:/path/to/上一批二转/三农信_上海序嘉洪"
+    },
+    {
+      "sheet": "三农信_洪均",
+      "transferor": "SNX",
+      "recipient": "HJ",
+      "template_folder": "D:/path/to/上一批二转/三农信_上海序嘉洪"
+    },
+    {
+      "sheet": "三农信_万妙",
+      "transferor": "SNX",
+      "recipient": "WM",
+      "template_folder": "D:/path/to/上一批二转/三农信_上海序嘉洪"
+    },
+    {
+      "sheet": "焕然_万妙",
+      "transferor": "HR",
+      "recipient": "WM",
+      "template_folder": "D:/path/to/上一批二转/锋泰_上海序嘉洪",
+      "transferor_replacements": [
+        ["北京锋泰科技有限公司", "北京焕然数字科技有限公司"],
+        ["北京市朝阳区东三环北路19号楼中青大厦1908室", "北京市朝阳区东三环北路19号楼中青大厦1903室"],
+        ["10242000000483660", "10242000000483581"],
+        ["FT-", "HR-"]
+      ]
+    },
+    {
+      "sheet": "应瑞_万妙",
+      "transferor": "YR",
+      "recipient": "WM",
+      "template_folder": "D:/path/to/上一批二转/应瑞_上海序嘉洪"
+    },
+    {
+      "sheet": "锋泰_万妙",
+      "transferor": "FT",
+      "recipient": "WM",
+      "template_folder": "D:/path/to/上一批二转/锋泰_上海序嘉洪"
+    },
+    {
+      "sheet": "应瑞_洪均",
+      "transferor": "YR",
+      "recipient": "HJ",
+      "template_folder": "D:/path/to/上一批二转/应瑞_上海序嘉洪"
+    }
+  ],
+  "stale_tokens": [
+    "第11批",
+    "20260817",
+    "2026年08月17日",
+    "上海序嘉洪商务咨询有限公司",
+    "121991885810001"
+  ]
+}

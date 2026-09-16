@@ -1,0 +1,10 @@
+{
+  "name": "fajiu-debt-skills",
+  "version": "1.0.0",
+  "description": "法久债转协议与债转短信生成 skills（debt-transfer-contracts + debt-transfer-sms）",
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "法久债转 Skills",
+    "shortDescription": "生成债转协议 Word 合同与 FJ-债转短信上传表"
+  }
+}
