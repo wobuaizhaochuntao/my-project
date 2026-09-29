@@ -2,7 +2,7 @@
 
 > 最后更新：2026-09-29。用户级 skill 位于 `C:\Users\Administrator\.kimi-code\skills\`，项目级位于 `d:\vscode\skills\`（同名时项目级优先）。
 
-## 业务 Skill（共 5 个）
+## 业务 Skill（共 6 个）
 
 ### 1. mark-pushable-orders — 未推送订单标记
 - **什么时候用**：给出洋钱罐「未推送订单」导出表，要求判断/标记/筛选"可以推送"、"哪些单子能推"。
@@ -34,6 +34,14 @@
 - **注意**：文字版为空的标「无法判断」，不得编造；夜间外呼（21点后）单独检查；还款能力类关键词只作备注。
 - **定级标准**：`references/rubric.md`。
 
+### 6. compensation-statement — 代偿欠款情况说明生成
+- **什么时候用**：追偿权纠纷案件，凭起诉状+还款计划PDF+诉讼金额截图生成《关于XX欠款情况的说明》Word 文档；触发词：欠款情况说明、代偿款重算、已还其他抵扣/提前抵本、利息结余结转、方健案/王明武案同类模板。
+- **做什么**：按法院口径将被告"已还其他"分期提前抵本、利息按期初剩余本金×年利率÷12 逐期重算（ROUND_HALF_UP）、利息结余结转下期，并按 4 倍 LPR 算违约金；生成 标题→法院抬头→案件脉络→逐笔借款（合同/还款表/重算表/违约金构成）→汇总表→综上段 的 docx。
+- **输入**：整理成 JSON（defendant/court/plaintiff/intro/suit_total/loans[repayments 一期一行，未还期 pay_date=null]，结构详见 SKILL.md）。
+- **脚本**：`scripts/doc_generator.py <输入.json> <输出.docx>`（复用 `recalc_engine.py`，模板 `assets/欠款说明模板.docx`）。
+- **校验**：kimi-word 的 docx validate 须 PASSED + 核对清单（违约金天数反推、代偿后还款对数、重算合计低于标的额）。
+- **口径红线**：金额一律 Decimal 禁 float；咨询担保费/担保费不抵本；违约金天数=自然日差、按 360 天计；`penalty.start_date`＝最后一笔代偿日次日；各案违约金利率随 LPR 不同（见过 12.00%~14.60%）。
+
 ## 流水线关系
 
 ```
@@ -45,7 +53,7 @@ SPV 集中度化解方案(spv-debt-transfer)  ←── 出债转明细/分配�
         └─→ 债转短信(debt-transfer-sms)
 ```
 
-通话质检（call-quality-inspection）为独立业务线。
+通话质检（call-quality-inspection）、欠款情况说明（compensation-statement）为独立业务线。
 
 ## 项目级副本（d:\vscode\skills\）
 
