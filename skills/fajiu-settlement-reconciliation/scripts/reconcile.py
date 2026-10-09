@@ -506,14 +506,14 @@ def write_postings(
         "normal": f"已在{label}体现",
         "anomaly": "已体现-时间异常待复核",
         "missing_no_order": f"未在{label}体现（无此订单）",
-        "missing_dup": f"未在{label}体现（同额重复）",
+        "missing_dup": f"未在{label}体现",
         "missing_amount": f"未在{label}体现（金额不一致）",
     }
     fills = {
         statuses["normal"]: "C6EFCE",
         statuses["anomaly"]: "FFEB9C",
         statuses["missing_no_order"]: "F4CCCC",
-        statuses["missing_dup"]: "F9CB9C",
+        statuses["missing_dup"]: "E7E6E6",
         statuses["missing_amount"]: "FCE5CD",
     }
     posting_rows = {item["row"] for item in postings}
@@ -646,7 +646,7 @@ def summarize(applications, postings, source_result, posting_result):
             "已正常体现": posting_counts["normal"],
             "时间异常待复核": posting_counts["anomaly"],
             "未体现-无此订单": posting_counts["missing_no_order"],
-            "未体现-同额重复": posting_counts["missing_dup"],
+            "未体现-同额已占用": posting_counts["missing_dup"],
             "未体现-金额不一致": posting_counts["missing_amount"],
         },
         "normal_matched_amount": f"{normal_source_amount / 100:.2f}",
