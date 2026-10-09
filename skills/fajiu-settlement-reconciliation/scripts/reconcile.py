@@ -226,6 +226,23 @@ def best_assignment(applications, postings, date_order: str):
     return best
 
 
+def merge_same_day_postings(posts):
+    """同一订单同一复核日期的多笔流水合并为一个核对单元（当天加总）。"""
+    merged = {}
+    for p in posts:
+        key = (p["order"], p["date"])
+        if key not in merged:
+            merged[key] = {
+                "order": p["order"],
+                "date": p["date"],
+                "amount": 0,
+                "rows": [],
+            }
+        merged[key]["amount"] += p["amount"]
+        merged[key]["rows"].append(p["row"])
+    return list(merged.values())
+
+
 def reconcile(applications, postings, date_order: str):
     applications_by_order = defaultdict(list)
     postings_by_order = defaultdict(list)
@@ -239,9 +256,11 @@ def reconcile(applications, postings, date_order: str):
 
     for order, raw_applications in applications_by_order.items():
         apps = sorted(raw_applications, key=lambda item: (item["date"], item["row"]))
-        posts = sorted(
-            postings_by_order.get(order, []),
-            key=lambda item: (item["date"], item["row"]),
+        posts = merge_same_day_postings(
+            sorted(
+                postings_by_order.get(order, []),
+                key=lambda item: (item["date"], item["row"]),
+            )
         )
         used_apps = set()
         used_posts = set()
@@ -251,7 +270,7 @@ def reconcile(applications, postings, date_order: str):
             used_apps.update(members)
             used_posts.add(posting_index)
             posting = posts[posting_index]
-            posting_result[posting["row"]] = {
+            posting_result[(posting["order"], posting["date"])] = {
                 "kind": "normal",
                 "source_rows": [apps[i]["row"] for i in members],
                 "amount": sum(apps[i]["amount"] for i in members),
@@ -281,7 +300,7 @@ def reconcile(applications, postings, date_order: str):
             anomaly_used_apps.update(members)
             anomaly_used_posts.add(posting_index)
             posting = remaining_posts[posting_index]
-            posting_result[posting["row"]] = {
+            posting_result[(posting["order"], posting["date"])] = {
                 "kind": "anomaly",
                 "source_rows": [remaining_apps[i]["row"] for i in members],
                 "amount": sum(remaining_apps[i]["amount"] for i in members),
@@ -439,7 +458,8 @@ def write_settlement(
         sheet.cell(
             row_number,
             columns["合并匹配组"],
-            f"{application['order']}-{posting['date']}-L{posting['row']}",
+            f"{application['order']}-{posting['date']}"
+            f"-L{','.join(map(str, posting['rows']))}",
         )
         sheet.cell(row_number, columns["合并后金额"], posting["amount"] / 100)
         sheet.cell(row_number, columns["合并后金额"]).number_format = "0.00"
@@ -468,6 +488,7 @@ def write_postings(
     posting_sheet_name: str,
     applications,
     postings,
+    zero_postings,
     posting_result,
     label: str,
 ) -> None:
@@ -516,18 +537,30 @@ def write_postings(
         statuses["missing_dup"]: "E7E6E6",
         statuses["missing_amount"]: "FCE5CD",
     }
-    posting_rows = {item["row"] for item in postings}
+    posting_rows = {item["row"] for item in postings} | {
+        item["row"] for item in zero_postings
+    }
     posting_by_row = {item["row"]: item for item in postings}
+    zero_rows = {item["row"] for item in zero_postings}
     app_by_row = {item["row"]: item for item in applications}
     apps_by_order = defaultdict(list)
     for item in applications:
         apps_by_order[item["order"]].append(item)
 
+    zero_status = "不处理（零金额不结算）"
+
     for row_number in posting_rows:
         for name in names:
             sheet.cell(row_number, columns[name], None)
-        result = posting_result.get(row_number)
-        order = posting_by_row[row_number]["order"]
+        if row_number in zero_rows:
+            sheet.cell(row_number, columns[f"{label}体现情况"], zero_status)
+            sheet.cell(row_number, columns[f"{label}体现情况"]).fill = PatternFill(
+                "solid", fgColor="D9D9D9"
+            )
+            continue
+        posting = posting_by_row[row_number]
+        result = posting_result.get((posting["order"], posting["date"]))
+        order = posting["order"]
         if result:
             status = statuses[result["kind"]]
             members = [app_by_row[row] for row in result["source_rows"]]
@@ -550,8 +583,7 @@ def write_postings(
                 "正常" if result["kind"] == "normal" else "异常",
             )
         else:
-            order = posting_by_row[row_number]["order"]
-            kind = missing_kind(posting_by_row[row_number], apps_by_order)
+            kind = missing_kind(posting, apps_by_order)
             status = statuses[kind]
             order_apps = apps_by_order.get(order, [])
             if order_apps:
@@ -589,7 +621,7 @@ def missing_kind(posting, apps_by_order) -> str:
 def classify_posting_kinds(postings, posting_result, apps_by_order):
     kinds = []
     for item in postings:
-        kind = posting_result.get(item["row"], {}).get("kind")
+        kind = posting_result.get((item["order"], item["date"]), {}).get("kind")
         if kind is None:
             kind = missing_kind(item, apps_by_order)
         kinds.append(kind)
@@ -605,7 +637,10 @@ def summarize(applications, postings, source_result, posting_result):
         classify_posting_kinds(postings, posting_result, apps_by_order)
     )
     application_by_row = {item["row"]: item for item in applications}
-    posting_by_row = {item["row"]: item for item in postings}
+    posting_by_key = {}
+    for item in postings:
+        key = (item["order"], item["date"])
+        posting_by_key[key] = posting_by_key.get(key, 0) + item["amount"]
 
     normal_source_amount = sum(
         application_by_row[row]["amount"]
@@ -613,7 +648,7 @@ def summarize(applications, postings, source_result, posting_result):
         if result["status"] == "入账成功"
     )
     normal_posting_amount = sum(
-        posting_by_row[row]["amount"]
+        posting_by_key[row]
         for row, result in posting_result.items()
         if result["kind"] == "normal"
     )
@@ -623,12 +658,14 @@ def summarize(applications, postings, source_result, posting_result):
         if result["status"] == "时间异常待复核"
     )
     anomaly_posting_amount = sum(
-        posting_by_row[row]["amount"]
+        posting_by_key[row]
         for row, result in posting_result.items()
         if result["kind"] == "anomaly"
     )
     missing_posting_amount = sum(
-        item["amount"] for item in postings if item["row"] not in posting_result
+        item["amount"]
+        for item in postings
+        if (item["order"], item["date"]) not in posting_result
     )
 
     balanced = (
@@ -693,6 +730,11 @@ def main() -> None:
 
     applications, settlement_sheet = read_settlement(settlement)
     postings, posting_sheet_name = read_postings(posting)
+
+    # 还款金额为 0 的流水不参与核对（零金额不结算），只标记不处理
+    zero_postings = [item for item in postings if item["amount"] == 0]
+    postings = [item for item in postings if item["amount"] != 0]
+
     source_result, posting_result = reconcile(
         applications, postings, args.date_order
     )
@@ -710,6 +752,7 @@ def main() -> None:
         posting_sheet_name,
         applications,
         postings,
+        zero_postings,
         posting_result,
         label,
     )
@@ -719,6 +762,7 @@ def main() -> None:
         source_result,
         posting_result,
     )
+    summary["zero_amount_rows"] = len(zero_postings)
     summary["settlement_output"] = str(settlement_output)
     summary["posting_output"] = str(posting_output)
     print(json.dumps(summary, ensure_ascii=False, indent=2))
