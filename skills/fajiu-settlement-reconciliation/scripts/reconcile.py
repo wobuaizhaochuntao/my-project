@@ -328,6 +328,14 @@ def style_header(cell, source_cell) -> None:
     cell.alignment = Alignment(horizontal="center", vertical="center")
 
 
+def fmt_dates(items) -> str:
+    return ",".join(sorted({str(item["date"]) for item in items}))
+
+
+def fmt_amounts(items) -> str:
+    return "+".join(f"{item['amount'] / 100:.2f}" for item in items)
+
+
 def period_label(path: Path) -> str:
     match = re.search(r"(\d{1,2})月结算", path.stem)
     return f"{match.group(1)}月结算" if match else "结算表"
@@ -338,6 +346,7 @@ def write_settlement(
     output: Path,
     sheet_title: str,
     applications,
+    postings,
     source_result,
 ) -> None:
     workbook = openpyxl.load_workbook(source)
@@ -355,6 +364,8 @@ def write_settlement(
         "时间差（天）",
         "合并匹配组",
         "合并后金额",
+        "对应入账日期",
+        "对应入账金额",
         "复核口径",
     ]
     existing = {
@@ -381,6 +392,9 @@ def write_settlement(
         "未找到入账成功记录": "E7E6E6",
     }
     by_row = {item["row"]: item for item in applications}
+    posts_by_order = defaultdict(list)
+    for item in postings:
+        posts_by_order[item["order"]].append(item)
 
     for row_number, result in source_result.items():
         status = result["status"]
@@ -398,9 +412,19 @@ def write_settlement(
         )
 
         posting = result["posting"]
-        if posting is None:
-            continue
         application = by_row[row_number]
+        if posting is None:
+            order_posts = posts_by_order.get(application["order"], [])
+            if order_posts:
+                sheet.cell(
+                    row_number, columns["对应入账日期"], fmt_dates(order_posts)
+                )
+                sheet.cell(
+                    row_number,
+                    columns["对应入账金额"],
+                    fmt_amounts(order_posts),
+                )
+            continue
         sheet.cell(row_number, columns["入账成功日期"], posting["date"])
         sheet.cell(row_number, columns["入账成功日期"]).number_format = "yyyy-mm-dd"
         sheet.cell(
@@ -419,6 +443,9 @@ def write_settlement(
         )
         sheet.cell(row_number, columns["合并后金额"], posting["amount"] / 100)
         sheet.cell(row_number, columns["合并后金额"]).number_format = "0.00"
+        sheet.cell(row_number, columns["对应入账日期"], str(posting["date"]))
+        sheet.cell(row_number, columns["对应入账金额"], posting["amount"] / 100)
+        sheet.cell(row_number, columns["对应入账金额"]).number_format = "0.00"
 
     for name, column in columns.items():
         if name == "复核口径":
@@ -455,6 +482,8 @@ def write_postings(
         f"{label}体现情况",
         f"对应{label}行",
         "对应还款金额合计",
+        f"对应{label}日期",
+        f"对应{label}金额",
         "时间核对",
     ]
     existing = {
@@ -487,14 +516,19 @@ def write_postings(
     }
     posting_rows = {item["row"] for item in postings}
     posting_by_row = {item["row"]: item for item in postings}
-    settlement_orders = {item["order"] for item in applications}
+    app_by_row = {item["row"]: item for item in applications}
+    apps_by_order = defaultdict(list)
+    for item in applications:
+        apps_by_order[item["order"]].append(item)
 
     for row_number in posting_rows:
         for name in names:
             sheet.cell(row_number, columns[name], None)
         result = posting_result.get(row_number)
+        order = posting_by_row[row_number]["order"]
         if result:
             status = statuses[result["kind"]]
+            members = [app_by_row[row] for row in result["source_rows"]]
             sheet.cell(
                 row_number,
                 columns[f"对应{label}行"],
@@ -506,14 +540,23 @@ def write_postings(
                 result["amount"] / 100,
             )
             sheet.cell(row_number, columns["对应还款金额合计"]).number_format = "0.00"
+            sheet.cell(row_number, columns[f"对应{label}日期"], fmt_dates(members))
+            sheet.cell(row_number, columns[f"对应{label}金额"], fmt_amounts(members))
             sheet.cell(
                 row_number,
                 columns["时间核对"],
                 "正常" if result["kind"] == "normal" else "异常",
             )
         else:
-            if posting_by_row[row_number]["order"] in settlement_orders:
+            order_apps = apps_by_order.get(order, [])
+            if order_apps:
                 status = statuses["missing_amount"]
+                sheet.cell(
+                    row_number, columns[f"对应{label}日期"], fmt_dates(order_apps)
+                )
+                sheet.cell(
+                    row_number, columns[f"对应{label}金额"], fmt_amounts(order_apps)
+                )
             else:
                 status = statuses["missing_no_order"]
         sheet.cell(row_number, columns[f"{label}体现情况"], status)
@@ -644,7 +687,12 @@ def main() -> None:
         applications, postings, args.date_order
     )
     write_settlement(
-        settlement, settlement_output, settlement_sheet, applications, source_result
+        settlement,
+        settlement_output,
+        settlement_sheet,
+        applications,
+        postings,
+        source_result,
     )
     write_postings(
         posting,
