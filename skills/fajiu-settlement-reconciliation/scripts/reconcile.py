@@ -18,14 +18,14 @@ from openpyxl.styles import Alignment, Font, PatternFill
 
 
 SOURCE_HEADERS = {
-    "order": "借款单号",
-    "amount": "还款金额",
-    "review_date": "复核日期",
-}
-POSTING_HEADERS = {
     "order": "订单号",
     "amount": "还款总金额",
-    "posting_date": "repaid_date",
+    "review_date": "repaid_date",
+}
+POSTING_HEADERS = {
+    "order": "借款单号",
+    "amount": "还款金额",
+    "posting_date": "复核日期",
 }
 
 
@@ -35,7 +35,37 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--posting", type=Path)
     parser.add_argument("--settlement-output", type=Path)
     parser.add_argument("--posting-output", type=Path)
+    parser.add_argument(
+        "--settlement-cols",
+        default="",
+        help="覆盖结算表列名，如 order=借款单号,amount=还款金额,review_date=复核日期",
+    )
+    parser.add_argument(
+        "--posting-cols",
+        default="",
+        help="覆盖入账表列名，如 order=订单号,amount=还款总金额,posting_date=repaid_date",
+    )
+    parser.add_argument(
+        "--date-order",
+        choices=["posting_first", "app_first", "none"],
+        default="posting_first",
+        help="正常时间口径：posting_first=入账日期≤结算日期（默认，先复核后确认）；"
+        "app_first=结算日期≤入账日期；none=不限制",
+    )
     return parser.parse_args()
+
+
+def apply_col_overrides(spec: str, target: dict[str, str]) -> None:
+    if not spec:
+        return
+    for pair in spec.split(","):
+        key, sep, value = pair.partition("=")
+        key = key.strip()
+        if not sep or key not in target or not value.strip():
+            raise ValueError(
+                f"无效的列覆盖 {pair!r}，可用键：{', '.join(target)}"
+            )
+        target[key] = value.strip()
 
 
 def order_id(value) -> str | None:
@@ -66,29 +96,24 @@ def header_indexes(values) -> dict[str, int]:
     return {value: index for index, value in enumerate(values) if value is not None}
 
 
-def require_headers(indexes: dict[str, int], required: dict[str, str], file: Path) -> None:
-    missing = [header for header in required.values() if header not in indexes]
-    if missing:
-        raise ValueError(f"{file.name} 缺少字段：{', '.join(missing)}")
-
-
-def find_posting_sheet(workbook):
-    for sheet in workbook.worksheets:
+def find_sheet(workbook, required: dict[str, str], path: Path):
+    active = workbook.active
+    sheets = [active] + [s for s in workbook.worksheets if s.title != active.title]
+    for sheet in sheets:
         first = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True), None)
         if first is None:
             continue
         indexes = header_indexes(first)
-        if all(header in indexes for header in POSTING_HEADERS.values()):
+        if all(header in indexes for header in required.values()):
             return sheet, indexes
-    raise ValueError("入账文件中未找到包含订单号、还款总金额、repaid_date的明细表")
+    raise ValueError(
+        f"{path.name} 中未找到包含 {', '.join(required.values())} 表头的工作表"
+    )
 
 
 def read_settlement(path: Path):
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    sheet = workbook.active
-    headers = next(sheet.iter_rows(min_row=1, max_row=1, values_only=True))
-    indexes = header_indexes(headers)
-    require_headers(indexes, SOURCE_HEADERS, path)
+    sheet, indexes = find_sheet(workbook, SOURCE_HEADERS, path)
 
     records = []
     incomplete = []
@@ -107,12 +132,12 @@ def read_settlement(path: Path):
             records.append(values)
     if incomplete:
         raise ValueError(f"结算表存在字段不完整的数据行：{incomplete[:20]}")
-    return records
+    return records, sheet.title
 
 
 def read_postings(path: Path):
     workbook = openpyxl.load_workbook(path, read_only=True, data_only=True)
-    sheet, indexes = find_posting_sheet(workbook)
+    sheet, indexes = find_sheet(workbook, POSTING_HEADERS, path)
     records = []
     incomplete = []
     for row_number, row in enumerate(sheet.iter_rows(min_row=2, values_only=True), 2):
@@ -133,8 +158,12 @@ def read_postings(path: Path):
     return records, sheet.title
 
 
-def best_assignment(applications, postings, causal: bool):
-    """Choose disjoint exact-sum subsets for postings."""
+def best_assignment(applications, postings, date_order: str):
+    """Choose disjoint exact-sum subsets for postings.
+
+    date_order: "posting_first" 入账日期不晚于结算日期（先复核后确认）；
+    "app_first" 结算日期不晚于入账日期；"none" 不限制。
+    """
     count = len(applications)
     if count > 18:
         raise ValueError(
@@ -149,7 +178,13 @@ def best_assignment(applications, postings, causal: bool):
             subset = [applications[i] for i in range(count) if mask >> i & 1]
             if sum(item["amount"] for item in subset) != posting["amount"]:
                 continue
-            if causal and not all(item["date"] <= posting["date"] for item in subset):
+            if date_order == "app_first" and not all(
+                item["date"] <= posting["date"] for item in subset
+            ):
+                continue
+            if date_order == "posting_first" and not all(
+                posting["date"] <= item["date"] for item in subset
+            ):
                 continue
             lag = sum(abs((posting["date"] - item["date"]).days) for item in subset)
             candidates.append((mask, lag))
@@ -191,7 +226,7 @@ def best_assignment(applications, postings, causal: bool):
     return best
 
 
-def reconcile(applications, postings):
+def reconcile(applications, postings, date_order: str):
     applications_by_order = defaultdict(list)
     postings_by_order = defaultdict(list)
     for item in applications:
@@ -211,7 +246,7 @@ def reconcile(applications, postings):
         used_apps = set()
         used_posts = set()
 
-        for posting_index, mask in best_assignment(apps, posts, causal=True):
+        for posting_index, mask in best_assignment(apps, posts, date_order):
             members = [i for i in range(len(apps)) if mask >> i & 1]
             used_apps.update(members)
             used_posts.add(posting_index)
@@ -238,7 +273,7 @@ def reconcile(applications, postings):
         anomaly_used_posts = set()
 
         for posting_index, mask in best_assignment(
-            remaining_apps, remaining_posts, causal=False
+            remaining_apps, remaining_posts, "none"
         ):
             members = [
                 i for i in range(len(remaining_apps)) if mask >> i & 1
@@ -301,11 +336,12 @@ def period_label(path: Path) -> str:
 def write_settlement(
     source: Path,
     output: Path,
+    sheet_title: str,
     applications,
     source_result,
 ) -> None:
     workbook = openpyxl.load_workbook(source)
-    sheet = workbook.active
+    sheet = workbook[sheet_title]
     nonempty_headers = [
         column
         for column in range(1, sheet.max_column + 1)
@@ -357,7 +393,8 @@ def write_settlement(
         sheet.cell(
             row_number,
             columns["复核口径"],
-            "借款单号 + 还款金额合计（精确到分） + 时间一对一",
+            "订单号 + 还款总金额合计（精确到分） + 时间一对一"
+            "（入账复核日期 ≤ 结算确认日期）",
         )
 
         posting = result["posting"]
@@ -570,10 +607,17 @@ def main() -> None:
         else posting.with_name(f"{posting.stem}_{label}体现标记.xlsx")
     )
 
-    applications = read_settlement(settlement)
+    apply_col_overrides(args.settlement_cols, SOURCE_HEADERS)
+    apply_col_overrides(args.posting_cols, POSTING_HEADERS)
+
+    applications, settlement_sheet = read_settlement(settlement)
     postings, posting_sheet_name = read_postings(posting)
-    source_result, posting_result = reconcile(applications, postings)
-    write_settlement(settlement, settlement_output, applications, source_result)
+    source_result, posting_result = reconcile(
+        applications, postings, args.date_order
+    )
+    write_settlement(
+        settlement, settlement_output, settlement_sheet, applications, source_result
+    )
     write_postings(
         posting,
         posting_output,

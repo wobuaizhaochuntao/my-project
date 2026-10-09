@@ -17,37 +17,40 @@ whenToUse: 当用户说"核对结算"/"入账核对"/"结算体现标记"，或�
 ## 执行
 
 1. 确认两个原始文件：
-   - 结算申请表：常见名称为 `流水导出-9月结算.xlsx`、`8月结算.xlsx`
-   - 入账信息表：常见名称为 `法久_202608.xlsx`
+   - 结算表（法久月度结算确认）：常见名称为 `法久_202609.xlsx`（订单号/还款总金额/repaid_date）
+   - 入账表（律助流水复核导出）：常见名称为 `流水导出-10月结算.xlsx`、`9月结算.xlsx`（借款单号/还款金额/复核日期）
 2. 不要把此前生成的 `_已核对` 或 `_体现标记` 文件误当成原始输入，除非用户明确指定。
 3. 执行本 Skill 的脚本：
 
 ```bash
-./.venv/bin/python scripts/reconcile.py --settlement "<结算申请表.xlsx>" --posting "<法久入账表.xlsx>"
+./.venv/bin/python scripts/reconcile.py --settlement "<法久结算表.xlsx>" --posting "<流水导出表.xlsx>"
 ```
 
 如需指定输出：
 
 ```bash
 ./.venv/bin/python scripts/reconcile.py \
-  --settlement "<结算申请表.xlsx>" \
-  --posting "<法久入账表.xlsx>" \
+  --settlement "<法久结算表.xlsx>" \
+  --posting "<流水导出表.xlsx>" \
   --settlement-output "<结算核对结果.xlsx>" \
   --posting-output "<入账体现标记.xlsx>"
 ```
+
+列名与默认口径不一致时用 `--settlement-cols` / `--posting-cols` 覆盖（如 `order=借款单号,amount=还款金额,review_date=复核日期`）；
+时间口径用 `--date-order` 指定（见下）。
 
 脚本依赖 `openpyxl`，已安装在本 skill 目录的 `.venv` 虚拟环境中，用 `./.venv/bin/python` 运行即可。
 若虚拟环境损坏，重建：`python3 -m venv .venv && ./.venv/bin/pip install openpyxl`。
 
 ## 固定核对口径
 
-- 身份字段：结算表“借款单号”对应入账表“订单号”。
-- 金额字段：只使用结算表“还款金额”，不要使用“流水金额”。
-- 入账金额：入账明细“还款总金额”。
+- 身份字段：结算表“订单号”对应入账表“借款单号”。
+- 金额字段：结算表“还款总金额”；入账表“还款金额”（勿用“流水金额”）。
 - 金额精确到分，不允许误差。
-- 同一借款单号下，多条“还款金额”可以加总后对应一条入账记录。
+- 同一订单号下，多条入账“还款金额”可以加总后对应一条结算记录。
 - 每条结算记录和每条入账记录最多使用一次。
-- 优先匹配“复核日期不晚于 repaid_date”的组合；再将金额完全一致但日期倒置的组合标为时间异常。
+- 正常时间口径（先复核、后结算确认）：入账表“复核日期”不晚于结算表 repaid_date；
+  复核日期晚于 repaid_date 的组合标为时间异常。
 - 当存在多种组合时，依次最大化：
   1. 匹配的入账记录数
   2. 覆盖的结算记录数
