@@ -439,6 +439,7 @@ def write_postings(
     source: Path,
     output: Path,
     posting_sheet_name: str,
+    applications,
     postings,
     posting_result,
     label: str,
@@ -475,14 +476,18 @@ def write_postings(
     statuses = {
         "normal": f"已在{label}体现",
         "anomaly": "已体现-时间异常待复核",
-        "missing": f"未在{label}体现",
+        "missing_no_order": f"未在{label}体现（无此订单）",
+        "missing_amount": f"未在{label}体现（金额不一致）",
     }
     fills = {
         statuses["normal"]: "C6EFCE",
         statuses["anomaly"]: "FFEB9C",
-        statuses["missing"]: "F4CCCC",
+        statuses["missing_no_order"]: "F4CCCC",
+        statuses["missing_amount"]: "FCE5CD",
     }
     posting_rows = {item["row"] for item in postings}
+    posting_by_row = {item["row"]: item for item in postings}
+    settlement_orders = {item["order"] for item in applications}
 
     for row_number in posting_rows:
         for name in names:
@@ -507,7 +512,10 @@ def write_postings(
                 "正常" if result["kind"] == "normal" else "异常",
             )
         else:
-            status = statuses["missing"]
+            if posting_by_row[row_number]["order"] in settlement_orders:
+                status = statuses["missing_amount"]
+            else:
+                status = statuses["missing_no_order"]
         sheet.cell(row_number, columns[f"{label}体现情况"], status)
         sheet.cell(row_number, columns[f"{label}体现情况"]).fill = PatternFill(
             "solid", fgColor=fills[status]
@@ -524,11 +532,25 @@ def write_postings(
     workbook.save(output)
 
 
+def classify_posting_kinds(postings, posting_result, settlement_orders):
+    kinds = []
+    for item in postings:
+        kind = posting_result.get(item["row"], {}).get("kind")
+        if kind is None:
+            kind = (
+                "missing_amount"
+                if item["order"] in settlement_orders
+                else "missing_no_order"
+            )
+        kinds.append(kind)
+    return kinds
+
+
 def summarize(applications, postings, source_result, posting_result):
     source_counts = Counter(item["status"] for item in source_result.values())
+    settlement_orders = {item["order"] for item in applications}
     posting_counts = Counter(
-        posting_result.get(item["row"], {"kind": "missing"})["kind"]
-        for item in postings
+        classify_posting_kinds(postings, posting_result, settlement_orders)
     )
     application_by_row = {item["row"]: item for item in applications}
     posting_by_row = {item["row"]: item for item in postings}
@@ -571,7 +593,8 @@ def summarize(applications, postings, source_result, posting_result):
         "posting_counts": {
             "已正常体现": posting_counts["normal"],
             "时间异常待复核": posting_counts["anomaly"],
-            "未体现": posting_counts["missing"],
+            "未体现-无此订单": posting_counts["missing_no_order"],
+            "未体现-金额不一致": posting_counts["missing_amount"],
         },
         "normal_matched_amount": f"{normal_source_amount / 100:.2f}",
         "anomaly_matched_amount": f"{anomaly_source_amount / 100:.2f}",
@@ -627,6 +650,7 @@ def main() -> None:
         posting,
         posting_output,
         posting_sheet_name,
+        applications,
         postings,
         posting_result,
         label,
