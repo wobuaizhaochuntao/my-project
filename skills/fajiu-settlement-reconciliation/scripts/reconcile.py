@@ -506,12 +506,14 @@ def write_postings(
         "normal": f"已在{label}体现",
         "anomaly": "已体现-时间异常待复核",
         "missing_no_order": f"未在{label}体现（无此订单）",
+        "missing_dup": f"未在{label}体现（同额重复）",
         "missing_amount": f"未在{label}体现（金额不一致）",
     }
     fills = {
         statuses["normal"]: "C6EFCE",
         statuses["anomaly"]: "FFEB9C",
         statuses["missing_no_order"]: "F4CCCC",
+        statuses["missing_dup"]: "F9CB9C",
         statuses["missing_amount"]: "FCE5CD",
     }
     posting_rows = {item["row"] for item in postings}
@@ -548,17 +550,17 @@ def write_postings(
                 "正常" if result["kind"] == "normal" else "异常",
             )
         else:
+            order = posting_by_row[row_number]["order"]
+            kind = missing_kind(posting_by_row[row_number], apps_by_order)
+            status = statuses[kind]
             order_apps = apps_by_order.get(order, [])
             if order_apps:
-                status = statuses["missing_amount"]
                 sheet.cell(
                     row_number, columns[f"对应{label}日期"], fmt_dates(order_apps)
                 )
                 sheet.cell(
                     row_number, columns[f"对应{label}金额"], fmt_amounts(order_apps)
                 )
-            else:
-                status = statuses["missing_no_order"]
         sheet.cell(row_number, columns[f"{label}体现情况"], status)
         sheet.cell(row_number, columns[f"{label}体现情况"]).fill = PatternFill(
             "solid", fgColor=fills[status]
@@ -575,25 +577,32 @@ def write_postings(
     workbook.save(output)
 
 
-def classify_posting_kinds(postings, posting_result, settlement_orders):
+def missing_kind(posting, apps_by_order) -> str:
+    order_apps = apps_by_order.get(posting["order"], [])
+    if not order_apps:
+        return "missing_no_order"
+    if any(item["amount"] == posting["amount"] for item in order_apps):
+        return "missing_dup"
+    return "missing_amount"
+
+
+def classify_posting_kinds(postings, posting_result, apps_by_order):
     kinds = []
     for item in postings:
         kind = posting_result.get(item["row"], {}).get("kind")
         if kind is None:
-            kind = (
-                "missing_amount"
-                if item["order"] in settlement_orders
-                else "missing_no_order"
-            )
+            kind = missing_kind(item, apps_by_order)
         kinds.append(kind)
     return kinds
 
 
 def summarize(applications, postings, source_result, posting_result):
     source_counts = Counter(item["status"] for item in source_result.values())
-    settlement_orders = {item["order"] for item in applications}
+    apps_by_order = defaultdict(list)
+    for item in applications:
+        apps_by_order[item["order"]].append(item)
     posting_counts = Counter(
-        classify_posting_kinds(postings, posting_result, settlement_orders)
+        classify_posting_kinds(postings, posting_result, apps_by_order)
     )
     application_by_row = {item["row"]: item for item in applications}
     posting_by_row = {item["row"]: item for item in postings}
@@ -637,6 +646,7 @@ def summarize(applications, postings, source_result, posting_result):
             "已正常体现": posting_counts["normal"],
             "时间异常待复核": posting_counts["anomaly"],
             "未体现-无此订单": posting_counts["missing_no_order"],
+            "未体现-同额重复": posting_counts["missing_dup"],
             "未体现-金额不一致": posting_counts["missing_amount"],
         },
         "normal_matched_amount": f"{normal_source_amount / 100:.2f}",
