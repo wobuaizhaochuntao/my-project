@@ -579,6 +579,11 @@ def summarize(applications, postings, source_result, posting_result):
     }
 
 
+def output_name(path: Path, tag: str) -> str:
+    stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return f"{path.stem}_{tag}_{stamp}.xlsx"
+
+
 def main() -> None:
     args = parse_args()
     settlement_value = args.settlement or os.environ.get("FAJIU_SETTLEMENT")
@@ -599,12 +604,12 @@ def main() -> None:
     settlement_output = (
         args.settlement_output.resolve()
         if args.settlement_output
-        else settlement.with_name(f"{settlement.stem}_已核对.xlsx")
+        else settlement.with_name(output_name(settlement, "已核对"))
     )
     posting_output = (
         args.posting_output.resolve()
         if args.posting_output
-        else posting.with_name(f"{posting.stem}_{label}体现标记.xlsx")
+        else posting.with_name(output_name(posting, f"{label}体现标记"))
     )
 
     apply_col_overrides(args.settlement_cols, SOURCE_HEADERS)
